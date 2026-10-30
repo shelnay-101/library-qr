@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Library Finder</title>
+<style>
+:root{--ink:#1d2433;--mute:#5d6678;--bg:#f6f7f4;--card:#fff;--line:#dfe2da;--acc:#1f5f4a;--acc2:#e8f1ec;--bad:#a4262c}
+*{box-sizing:border-box}body{margin:0;font:16px/1.5 Georgia,'Times New Roman',serif;color:var(--ink);background:var(--bg)}
+h1,h2,h3,button,input,select,textarea,nav,th,.badge{font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:space-between;align-items:center;padding:.8rem 1rem;background:var(--acc);color:#fff}
+header a{color:#fff;text-decoration:none;font-weight:600}nav{display:flex;gap:1rem}
+main{max-width:980px;margin:0 auto;padding:1rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem;margin:.75rem 0}
+input,select,textarea{width:100%;padding:.6rem;border:1px solid #b9beb0;border-radius:6px;font-size:1rem;background:#fff}
+button{padding:.6rem 1rem;border:0;border-radius:6px;background:var(--acc);color:#fff;font-size:1rem;cursor:pointer}
+button.alt{background:var(--acc2);color:var(--acc)}button.del{background:#fbeaea;color:var(--bad)}button.sm{padding:.3rem .6rem;font-size:.85rem}
+:focus-visible{outline:3px solid #f2b705;outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}.row>*{flex:1 1 150px}.row>button{flex:0 0 auto}
+.stats{display:flex;gap:2rem;color:var(--mute)}.stats b{font-size:1.6rem;color:var(--ink)}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem}.chips button{background:var(--acc2);color:var(--acc);padding:.3rem .8rem;border-radius:99px}
+.badge{padding:.1rem .5rem;border-radius:99px;background:var(--acc2);color:var(--acc);font-size:.8rem}.badge.x{background:#fbeaea;color:var(--bad)}
+.tabs{display:flex;gap:.3rem;overflow-x:auto}.tabs button{background:var(--acc2);color:var(--acc)}.tabs button.on{background:var(--acc);color:#fff}
+table{width:100%;border-collapse:collapse;font-size:.92rem}th,td{text-align:left;padding:.45rem;border-bottom:1px solid var(--line);vertical-align:top}
+.scroll{overflow-x:auto}.mute{color:var(--mute)}.err{color:var(--bad)}
+dialog{border:1px solid var(--line);border-radius:10px;width:min(560px,95vw);max-height:90vh}dialog label{display:block;margin:.5rem 0 .1rem;font:600 .85rem system-ui}
+.qrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.7rem}.qrs img{width:100%}
+</style></head><body>
+<header><a href="/" data-l>📚 Library Finder</a><nav id="nav"></nav></header>
+<main id="app">Loading…</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/config.js"></script>
+<script>
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const $=s=>document.querySelector(s),app=$('#app'),PS=10;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let session=null,isAdmin=false,tab='dash';
+const go=p=>{history.pushState({},'',p);route()};
+document.addEventListener('click',e=>{const a=e.target.closest('a[data-l]');if(a){e.preventDefault();go(a.getAttribute('href'))}});
+onpopstate=()=>route();
+const log=a=>sb.from('activity_log').insert({action:a});
+const badge=s=>`<span class="badge ${s=='available'?'':'x'}">${esc(s)}</span>`;
+const boxLink=b=>b.box_number?`<a href="/box/${encodeURIComponent(b.box_number)}" data-l>${esc(b.box_number)}</a>`:'<span class=mute>Unassigned</span>';
+
+async function setSession(s){session=s;isAdmin=false;
+ if(s){const{data}=await sb.from('admin_users').select('id').eq('auth_user_id',s.user.id).maybeSingle();isAdmin=!!data}
+ $('#nav').innerHTML=`<a href="/" data-l>Search</a><a href="/admin" data-l>${session?'Admin':'Admin login'}</a>`}
+function route(){const p=location.pathname,m=p.match(/^\/box\/(.+)$/);
+ if(m)return boxPage(decodeURIComponent(m[1]));if(p.startsWith('/admin'))return adminPage();home()}
+
+/* ---------- PUBLIC ---------- */
+async function home(){
+ const[b,x,c]=await Promise.all([sb.from('books').select('id',{count:'exact',head:true}),sb.from('boxes').select('id',{count:'exact',head:true}),sb.from('books').select('category')]);
+ const cats=[...new Set((c.data||[]).map(r=>r.category).filter(Boolean))].sort();
+ app.innerHTML=`<div class=card><h1 style="margin:0 0 .5rem">Find a book</h1>
+ <div class=stats><span><b>${b.count??0}</b> books</span><span><b>${x.count??0}</b> boxes</span></div>
+ <form id=sf class=row style="margin-top:.8rem"><input id=q type=search aria-label=Search placeholder="Title, author, ISBN, book ID or box number" style="flex:2 1 260px">
+ <select id=cat aria-label=Category><option value="">All categories</option>${cats.map(k=>`<option>${esc(k)}</option>`).join('')}</select>
+ <select id=st aria-label=Status><option value="">Any status</option><option>available</option><option>borrowed</option><option>missing</option><option>repair</option></select>
+ <button>Search</button></form></div>
+ <div class=chips id=chips>${cats.map(k=>`<button data-c="${esc(k)}">${esc(k)}</button>`).join('')}</div>
+ <div id=res></div>
+ <p class=mute>Scan the QR code on a storage box with your phone camera to see every book inside it.</p>`;
+ $('#sf').onsubmit=e=>{e.preventDefault();search(0)};
+ $('#chips').onclick=e=>{if(e.target.dataset.c){$('#cat').value=e.target.dataset.c;search(0)}};
+ search(0)}
+async function search(pg){
+ let q=sb.from('book_locations').select('*',{count:'exact'});
+ const t=$('#q').value.trim().replace(/[,()%*]/g,' ');
+ if(t)q=q.or(['title','author','isbn','book_number','box_number'].map(f=>`${f}.ilike.%${t}%`).join(','));
+ if($('#cat').value)q=q.eq('category',$('#cat').value);if($('#st').value)q=q.eq('status',$('#st').value);
+ const{data,count,error}=await q.order('title').range(pg*PS,pg*PS+PS-1);
+ if(error)return $('#res').innerHTML=`<p class=err>${esc(error.message)}</p>`;
+ $('#res').innerHTML=bookTable(data)+`<div class=row><span class=mute>${count} result(s) · page ${pg+1}</span>
+ <button class="alt sm" ${pg?'':'disabled'} id=pv>Previous</button><button class="alt sm" ${(pg+1)*PS<count?'':'disabled'} id=nx>Next</button></div>`;
+ $('#pv').onclick=()=>search(pg-1);$('#nx').onclick=()=>search(pg+1)}
+function bookTable(d){if(!d.length)return'<div class=card>No books match. Try fewer words or another category.</div>';
+ return`<div class="card scroll"><table><tr><th>Book ID<th>Title<th>Author<th>Category<th>Box<th>Shelf<th>Status</tr>${d.map(b=>`<tr><td>${esc(b.book_number)}<td><b>${esc(b.title)}</b><td>${esc(b.author)}<td>${esc(b.category)}<td>${boxLink(b)}<td>${esc(b.shelf_location)}<td>${badge(b.status)}</tr>`).join('')}</table></div>`}
+async function boxPage(n){
+ const{data:bx}=await sb.from('boxes').select('*').eq('box_number',n).maybeSingle();
+ if(!bx)return app.innerHTML=`<div class=card><h2>Box not found</h2><p>No box is registered as “${esc(n)}”.</p><a href="/" data-l>Search books instead</a></div>`;
+ const{data}=await sb.from('book_locations').select('*').eq('box_id',bx.id).order('title');
+ app.innerHTML=`<div class=card><h1 style="margin:0">${esc(bx.box_number)} · ${esc(bx.box_name)}</h1>
+ <p>Category: ${esc(bx.category)||'—'}<br>Shelf: ${esc(bx.shelf_location)||'—'}<br>Books: <b>${data.length}</b></p><p class=mute>${esc(bx.description)}</p></div>
+ ${data.length?bookTable(data):'<div class=card>This box is empty.</div>'}`}
+
+/* ---------- ADMIN ---------- */
+async function adminPage(){
+ if(!session)return app.innerHTML=`<div class=card style="max-width:380px;margin:auto"><h2>Administrator login</h2><form id=lf>
+ <label>Email<input type=email id=em required></label><label>Password<input type=password id=pw required></label><p id=le class=err></p><button>Log in</button></form></div>`,
+ $('#lf').onsubmit=async e=>{e.preventDefault();const{data,error}=await sb.auth.signInWithPassword({email:$('#em').value,password:$('#pw').value});
+  if(error)return $('#le').textContent=error.message;await setSession(data.session);adminPage()};
+ if(!isAdmin)return app.innerHTML=`<div class=card><h2>Not an administrator</h2><p>This account is not listed in admin_users. See README step 4.</p><button id=lo>Log out</button></div>`,$('#lo').onclick=logout;
+ const T=[['dash','Dashboard'],['books','Books'],['boxes','Boxes'],['qr','QR codes'],['io','Import / Export']];
+ app.innerHTML=`<div class=tabs>${T.map(([k,v])=>`<button data-t=${k} class="${k==tab?'on':''}">${v}</button>`).join('')}<button class=del id=lo>Log out</button></div><div id=pane></div>`;
+ $('#lo').onclick=logout;document.querySelector('.tabs').onclick=e=>{if(e.target.dataset.t){tab=e.target.dataset.t;adminPage()}};
+ ({dash,books:bookAdmin,boxes:boxAdmin,qr,io})[tab]()}
+async function logout(){await sb.auth.signOut();await setSession(null);go('/')}
+async function dash(){
+ const c=t=>sb.from(t).select('id',{count:'exact',head:true});
+ const[b,x,k,l]=await Promise.all([c('books'),c('boxes'),sb.from('books').select('category'),sb.from('activity_log').select('*').order('created_at',{ascending:false}).limit(15)]);
+ $('#pane').innerHTML=`<div class=card><div class=stats><span><b>${b.count}</b> books</span><span><b>${x.count}</b> boxes</span><span><b>${new Set(k.data.map(r=>r.category).filter(Boolean)).size}</b> categories</span></div></div>
+ <div class=card><h3>Recent activity</h3>${l.data.map(r=>`<div>${new Date(r.created_at).toLocaleString()} — ${esc(r.action)}</div>`).join('')||'<span class=mute>Nothing yet.</span>'}</div>`}
+
+function form(title,fields,v,onSave){
+ const d=document.createElement('dialog');
+ d.innerHTML=`<form method=dialog><h3>${title}</h3>${fields.map(f=>`<label>${f.l}${f.r?' *':''}</label>${f.o?`<select name=${f.k}>${f.o.map(o=>`<option value="${esc(o)}" ${o==v[f.k]?'selected':''}>${esc(o)||'(none)'}</option>`).join('')}</select>`:f.t=='ta'?`<textarea name=${f.k} rows=3>${esc(v[f.k])}</textarea>`:`<input name=${f.k} type=${f.t||'text'} value="${esc(v[f.k])}" ${f.r?'required':''}>`}`).join('')}
+ <p class=err id=fe></p><div class=row><button>Save</button><button type=button class=alt id=cx>Cancel</button></div></form>`;
+ document.body.append(d);d.showModal();d.querySelector('#cx').onclick=()=>d.remove();
+ d.querySelector('form').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));
+  const err=await onSave(o);if(err)return d.querySelector('#fe').textContent=err;d.remove();adminPage()}}
+const bookFields=bx=>[{k:'book_number',l:'Book ID',r:1},{k:'title',l:'Title',r:1},{k:'author',l:'Author'},{k:'isbn',l:'ISBN'},{k:'publisher',l:'Publisher'},{k:'publication_year',l:'Year',t:'number'},{k:'category',l:'Category'},{k:'classification',l:'Classification'},{k:'cutter_number',l:'Cutter number'},{k:'copy_number',l:'Copy number'},{k:'status',l:'Status',o:['available','borrowed','missing','repair']},{k:'box_number',l:'Box',o:['',...bx]},{k:'description',l:'Description',t:'ta'}];
+async function setBox(id,num){
+ if(!num){const{error}=await sb.from('box_books').delete().eq('book_id',id);return error?.message}
+ const{data:bx}=await sb.from('boxes').select('id').eq('box_number',num).maybeSingle();if(!bx)return'Box not found';
+ const{error}=await sb.from('box_books').upsert({book_id:id,box_id:bx.id,assigned_at:new Date().toISOString()},{onConflict:'book_id'});return error?.message}
+let bpage=0,bq='';
+async function bookAdmin(){
+ const bxs=(await sb.from('boxes').select('box_number').order('box_number')).data.map(r=>r.box_number);
+ let q=sb.from('book_locations').select('*',{count:'exact'});const t=bq.replace(/[,()%*]/g,' ');
+ if(t)q=q.or(['title','author','isbn','book_number','box_number'].map(f=>`${f}.ilike.%${t}%`).join(','));
+ const{data,count}=await q.order('book_number').range(bpage*25,bpage*25+24);
+ $('#pane').innerHTML=`<div class=card><div class=row><input id=bs value="${esc(bq)}" placeholder="Filter books"><button id=bgo class=alt>Filter</button><button id=badd>Add book</button></div></div>
+ <div class="card scroll"><table><tr><th>ID<th>Title<th>Box<th>Status<th></tr>${data.map(b=>`<tr><td>${esc(b.book_number)}<td>${esc(b.title)}<td>${esc(b.box_number)}<td>${esc(b.status)}<td><button class="sm alt" data-e=${b.id}>Edit</button> <button class="sm del" data-d=${b.id}>Delete</button></tr>`).join('')}</table>
+ <div class=row><span class=mute>${count} books</span><button class="sm alt" id=bp ${bpage?'':'disabled'}>Previous</button><button class="sm alt" id=bn ${(bpage+1)*25<count?'':'disabled'}>Next</button></div></div>`;
+ $('#bgo').onclick=()=>{bq=$('#bs').value;bpage=0;bookAdmin()};$('#bp').onclick=()=>{bpage--;bookAdmin()};$('#bn').onclick=()=>{bpage++;bookAdmin()};
+ const save=id=>async o=>{const box=o.box_number;delete o.box_number;o.publication_year=o.publication_year?+o.publication_year:null;
+  for(const k of['isbn','publisher'])o[k]=o[k]||null;
+  const r=id?await sb.from('books').update(o).eq('id',id).select('id').single():await sb.from('books').insert(o).select('id').single();
+  if(r.error)return r.error.code=='23505'?'That Book ID already exists.':r.error.message;
+  const e=await setBox(r.data.id,box);log((id?'Updated ':'Added ')+o.book_number+(box?' → '+box:''));return e};
+ $('#badd').onclick=()=>form('Add book',bookFields(bxs),{status:'available'},save());
+ $('#pane').onclick=async e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.e)form('Edit book',bookFields(bxs),data.find(x=>x.id==b.dataset.e),save(b.dataset.e));
+  if(b.dataset.d&&confirm('Delete this book permanently?')){const bk=data.find(x=>x.id==b.dataset.d);await sb.from('books').delete().eq('id',bk.id);log('Deleted '+bk.book_number);bookAdmin()}}}
+async function boxAdmin(){
+ const{data}=await sb.from('boxes').select('*,box_books(count)').order('box_number');
+ $('#pane').innerHTML=`<div class=card><button id=xadd>Add box</button></div><div class="card scroll"><table><tr><th>Box<th>Name<th>Category<th>Shelf<th>Books<th></tr>${data.map(b=>`<tr><td>${esc(b.box_number)}<td>${esc(b.box_name)}<td>${esc(b.category)}<td>${esc(b.shelf_location)}<td>${b.box_books[0].count}<td><button class="sm alt" data-e=${b.id}>Edit</button> <button class="sm del" data-d=${b.id}>Delete</button></tr>`).join('')}</table></div>`;
+ const F=[{k:'box_number',l:'Box number (e.g. BOX-001)',r:1},{k:'box_name',l:'Box name',r:1},{k:'category',l:'Category'},{k:'shelf_location',l:'Shelf location'},{k:'description',l:'Description',t:'ta'}];
+ const save=id=>async o=>{o.box_number=o.box_number.trim().toUpperCase();
+  const r=id?await sb.from('boxes').update(o).eq('id',id):await sb.from('boxes').insert(o);
+  if(r.error)return r.error.code=='23505'?'That box number already exists.':r.error.message;log((id?'Updated ':'Added ')+o.box_number)};
+ $('#xadd').onclick=()=>form('Add box',F,{},save());
+ $('#pane').onclick=async e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.e)form('Edit box',F,data.find(x=>x.id==b.dataset.e),save(b.dataset.e));
+  if(b.dataset.d){const bx=data.find(x=>x.id==b.dataset.d);if(confirm(`Delete ${bx.box_number}? Its ${bx.box_books[0].count} book(s) stay in the catalogue but become unassigned. Printed QR labels will stop working.`)){await sb.from('boxes').delete().eq('id',bx.id);log('Deleted '+bx.box_number);boxAdmin()}}}}
+
+/* ---------- QR ---------- */
+function labelPNG(num){const tmp=document.createElement('div');
+ new QRCode(tmp,{text:`${location.origin}/box/${encodeURIComponent(num)}`,width:260,height:260,correctLevel:QRCode.CorrectLevel.M});
+ const c=document.createElement('canvas');c.width=300;c.height=350;const x=c.getContext('2d');
+ x.fillStyle='#fff';x.fillRect(0,0,300,350);x.drawImage(tmp.querySelector('canvas'),20,15);
+ x.fillStyle='#000';x.font='bold 30px sans-serif';x.textAlign='center';x.fillText(num,150,327);return c.toDataURL('image/png')}
+async function qr(){
+ const{data}=await sb.from('boxes').select('box_number,box_name').order('box_number');
+ $('#pane').innerHTML=`<div class=card><div class=row><button id=pa>Print all</button><button id=ps class=alt>Print ticked</button></div><p class=mute>Each QR code holds only the box URL, so it never changes when books move.</p></div>
+ <div class=qrs>${data.map(b=>`<div class=card><label><input type=checkbox value="${esc(b.box_number)}" style="width:auto"> ${esc(b.box_name)}</label><img src="${labelPNG(b.box_number)}" alt="QR ${esc(b.box_number)}"><button class="sm" data-n="${esc(b.box_number)}">Download PNG</button></div>`).join('')}</div>`;
+ const pr=nums=>{const w=open('');w.document.write(`<style>img{width:5cm;margin:.4cm;page-break-inside:avoid}</style>`+nums.map(n=>`<img src="${labelPNG(n)}">`).join(''));w.document.close();w.onload=()=>w.print()};
+ $('#pa').onclick=()=>pr(data.map(b=>b.box_number));
+ $('#ps').onclick=()=>pr([...document.querySelectorAll('.qrs input:checked')].map(i=>i.value));
+ $('#pane').onclick=e=>{const n=e.target.dataset.n;if(n){const a=document.createElement('a');a.href=labelPNG(n);a.download=n+'.png';a.click()}}}
+
+/* ---------- CSV ---------- */
+function parseCSV(t){const rows=[];let r=[],f='',q=false;t=t.replace(/^\uFEFF/,'');
+ for(let i=0;i<t.length;i++){const c=t[i];
+  if(q){if(c=='"'){if(t[i+1]=='"'){f+='"';i++}else q=false}else f+=c}
+  else if(c=='"')q=true;else if(c==','){r.push(f);f=''}
+  else if(c=='\n'||c=='\r'){if(c=='\r'&&t[i+1]=='\n')i++;r.push(f);f='';if(r.some(x=>x.trim()))rows.push(r);r=[]}else f+=c}
+ r.push(f);if(r.some(x=>x.trim()))rows.push(r);return rows}
+const toCSV=(rows,cols)=>'\uFEFF'+[cols,...rows.map(r=>cols.map(c=>r[c]))].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+const dl=(n,t)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download=n;a.click()};
+const BC=['book_number','title','author','isbn','publisher','publication_year','category','classification','cutter_number','copy_number','status','description'];
+const ALIAS={year:'publication_year',cutter:'cutter_number',copy:'copy_number',book_id:'book_number'};
+function io(){
+ $('#pane').innerHTML=`<div class=card><h3>Export</h3><div class=row><button id=eb>Books CSV</button><button id=ex>Boxes CSV</button></div><p class=mute>CSV files open directly in Excel.</p></div>
+ <div class=card><h3>Import books</h3><p class=mute>Columns: book_number, title, author, year, category, classification, cutter, copy, isbn, publisher, status, description, box_number. Boxes must already exist.</p>
+ <input type=file id=f accept=".csv"><div id=rep></div></div>`;
+ $('#eb').onclick=async()=>{const{data}=await sb.from('book_locations').select('*').order('book_number').limit(10000);dl('books.csv',toCSV(data,[...BC,'box_number']))};
+ $('#ex').onclick=async()=>{const{data}=await sb.from('boxes').select('*').order('box_number');dl('boxes.csv',toCSV(data,['box_number','box_name','category','shelf_location','description','created_at']))};
+ $('#f').onchange=async e=>{const rows=parseCSV(await e.target.files[0].text());
+  const H=rows[0].map(h=>{h=h.trim().toLowerCase().replace(/\s+/g,'_');return ALIAS[h]||h});
+  const objs=rows.slice(1).map(r=>Object.fromEntries(H.map((h,i)=>[h,(r[i]||'').trim()])));
+  const[ex,bx]=await Promise.all([sb.from('books').select('book_number').limit(100000),sb.from('boxes').select('id,box_number')]);
+  const have=new Set(ex.data.map(r=>r.book_number)),boxes=Object.fromEntries(bx.data.map(b=>[b.box_number,b.id])),seen=new Set(),ok=[],bad=[];
+  objs.forEach((o,i)=>{const n=i+2;let m='';
+   if(!o.book_number||!o.title)m='missing book_number or title';else if(have.has(o.book_number))m='duplicate of existing book '+o.book_number;
+   else if(seen.has(o.book_number))m='duplicate book_number inside file';else if(o.box_number&&!boxes[o.box_number])m='unknown box '+o.box_number;
+   else if(o.publication_year&&isNaN(+o.publication_year))m='year is not a number';else if(o.status&&!['available','borrowed','missing','repair'].includes(o.status))m='invalid status';
+   m?bad.push(`Row ${n}: ${m}`):(seen.add(o.book_number),ok.push(o))});
+  $('#rep').innerHTML=`<p><b>${ok.length}</b> valid, <b>${bad.length}</b> rejected.</p>${bad.map(b=>`<div class=err>${esc(b)}</div>`).join('')}${ok.length?'<button id=go>Import valid rows</button>':''}`;
+  if(ok.length)$('#go').onclick=async()=>{$('#go').disabled=true;
+   for(let i=0;i<ok.length;i+=200){const part=ok.slice(i,i+200);
+    const rec=part.map(o=>Object.fromEntries(BC.filter(k=>o[k]).map(k=>[k,k=='publication_year'?+o[k]:o[k]])));
+    const{data,error}=await sb.from('books').insert(rec).select('id,book_number');if(error)return $('#rep').innerHTML=`<p class=err>${esc(error.message)}</p>`;
+    const id=Object.fromEntries(data.map(b=>[b.book_number,b.id]));
+    const links=part.filter(o=>o.box_number).map(o=>({book_id:id[o.book_number],box_id:boxes[o.box_number]}));
+    if(links.length)await sb.from('box_books').insert(links)}
+   log(`Imported ${ok.length} books from CSV`);$('#rep').innerHTML=`<p>Imported ${ok.length} books.</p>`}}}
+
+sb.auth.getSession().then(async({data})=>{await setSession(data.session);route()});
+</script></body></html>
