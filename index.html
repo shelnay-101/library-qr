@@ -57,7 +57,7 @@ async function setSession(s){session=s;isAdmin=false;
  if(s){const{data}=await sb.from('admin_users').select('id').eq('auth_user_id',s.user.id).maybeSingle();isAdmin=!!data}
  $('#nav').innerHTML=`<a href="/" data-l>Search</a><a href="/categories" data-l>Categories</a><a href="/admin" data-l>${session?'Admin':'Admin login'}</a>`}
 function route(){const p=location.pathname,m=p.match(/^\/box\/(.+)$/);
- if(m)return boxPage(decodeURIComponent(m[1]));if(p=='/categories')return catPage();if(p.startsWith('/admin'))return adminPage();home()}
+ if(m)return boxPage(decodeURIComponent(m[1]));const bm=p.match(/^\/book\/(.+)$/);if(bm)return bookPage(decodeURIComponent(bm[1]));if(p=='/categories')return catPage();if(p.startsWith('/admin'))return adminPage();home()}
 
 /* ---------- PUBLIC ---------- */
 async function home(){
@@ -88,8 +88,17 @@ async function search(pg){
 const hue=s=>[...String(s)].reduce((a,c)=>a+c.charCodeAt(0),0)%360;
 const cover=b=>{const u=b.cover_url||(b.isbn?`https://covers.openlibrary.org/b/isbn/${encodeURIComponent(b.isbn)}-M.jpg?default=false`:'');
  return`<div class=cv style="background:hsl(${hue(b.category||b.title)} 40% 86%)">${esc((b.title||'?').charAt(0).toUpperCase())}${u?`<img src="${esc(u)}" alt="" loading=lazy onerror="this.remove()">`:''}</div>`};
-const card=b=>`<div class=bk>${cover(b)}<div class=in><b>${esc(b.title)}</b>${esc(b.author)}<br><span class=mute>${esc(b.book_number)}</span><br>${boxLink(b)} · Shelf ${esc(b.shelf_location)||'—'}<br>${badge(b.status)}</div></div>`;
+const card=b=>`<div class=bk>${cover(b)}<div class=in><b><a href="/book/${encodeURIComponent(b.book_number)}" data-l style="color:inherit">${esc(b.title)}</a></b>${esc(b.author)}<br><a href="/book/${encodeURIComponent(b.book_number)}" data-l>View summary</a><br><span class=mute>${esc(b.book_number)}</span><br>${boxLink(b)} · Shelf ${esc(b.shelf_location)||'—'}<br>${badge(b.status)}</div></div>`;
 function bookTable(d){return d.length?`<div class=grid>${d.map(card).join('')}</div>`:'<div class=card>No books match. Try fewer words or another category.</div>'}
+async function bookPage(n){
+ const{data:b}=await sb.from('book_locations').select('*').eq('book_number',n).maybeSingle();
+ if(!b)return app.innerHTML=`<div class=card><h2>Book not found</h2><a href="/" data-l>Search books</a></div>`;
+ const rows=[['Book ID',b.book_number],['Author',b.author],['Category',b.category],['Year',b.publication_year],['Publisher',b.publisher],['ISBN',b.isbn],['Call number',[b.classification,b.cutter_number,b.copy_number].filter(Boolean).join(' ')]].filter(r=>r[1]);
+ app.innerHTML=`<div class=card style="display:flex;flex-wrap:wrap;gap:1rem"><div style="width:180px;flex:none;border-radius:8px;overflow:hidden">${cover(b)}</div>
+ <div style="flex:1 1 260px"><h1 style="margin:0 0 .3rem">${esc(b.title)}</h1>${badge(b.status)}
+ <table>${rows.map(([k,v])=>`<tr><th>${k}<td>${esc(v)}</tr>`).join('')}<tr><th>Location<td>${boxLink(b)}${b.shelf_location?' · Shelf '+esc(b.shelf_location):''}</tr></table></div></div>
+ <div class=card><h3>Summary</h3><p style="white-space:pre-wrap">${esc(b.description)||'<span class=mute>No summary has been added for this book yet.</span>'}</p></div>
+ <a href="javascript:history.back()">← Back</a>`}
 async function catPage(){
  const{data}=await sb.from('book_locations').select('*').order('title').limit(2000);
  const g={};data.forEach(b=>(g[b.category||'Uncategorised']??=[]).push(b));
