@@ -35,6 +35,7 @@ header{background:linear-gradient(120deg,#1f5f4a,#33856a)}
 .kpi b{display:block;font:700 2rem system-ui}.kpi span{color:var(--mute);font:.9rem system-ui}
 .bar{display:grid;grid-template-columns:120px 1fr 32px;gap:.5rem;align-items:center;margin:.35rem 0;font:.9rem system-ui}.bar i{display:block;height:12px;border-radius:6px;background:var(--acc)}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem}
+#rf label{display:block;font:600 .85rem system-ui;margin:.6rem 0 .1rem}
 </style></head><body>
 <header><a href="/" data-l>📚 Library Finder</a><nav id="nav"></nav></header>
 <main id="app">Loading…</main>
@@ -55,9 +56,9 @@ const boxLink=b=>b.box_number?`<a href="/box/${encodeURIComponent(b.box_number)}
 
 async function setSession(s){session=s;isAdmin=false;
  if(s){const{data}=await sb.from('admin_users').select('id').eq('auth_user_id',s.user.id).maybeSingle();isAdmin=!!data}
- $('#nav').innerHTML=`<a href="/" data-l>Search</a><a href="/categories" data-l>Categories</a><a href="/admin" data-l>${session?'Admin':'Admin login'}</a>`}
+ $('#nav').innerHTML=`<a href="/" data-l>Search</a><a href="/categories" data-l>Categories</a><a href="/request" data-l>Request a book</a><a href="/admin" data-l>${session?'Admin':'Admin login'}</a>`}
 function route(){const p=location.pathname,m=p.match(/^\/box\/(.+)$/);
- if(m)return boxPage(decodeURIComponent(m[1]));const bm=p.match(/^\/book\/(.+)$/);if(bm)return bookPage(decodeURIComponent(bm[1]));if(p=='/categories')return catPage();if(p.startsWith('/admin'))return adminPage();home()}
+ if(m)return boxPage(decodeURIComponent(m[1]));if(p=='/request')return reqPage();const bm=p.match(/^\/book\/(.+)$/);if(bm)return bookPage(decodeURIComponent(bm[1]));if(p=='/categories')return catPage();if(p.startsWith('/admin'))return adminPage();home()}
 
 /* ---------- PUBLIC ---------- */
 async function home(){
@@ -71,7 +72,7 @@ async function home(){
  <button>Search</button></form></div>
  <div class=chips id=chips>${cats.map(k=>`<button data-c="${esc(k)}">${esc(k)}</button>`).join('')}</div>
  <div id=res></div>
- <p class=mute>Scan the QR code on a storage box with your phone camera to see every book inside it.</p>`;
+ <p class=mute>Scan the QR code on a storage box with your phone camera to see every book inside it. Can't find a book? <a href="/request" data-l>Request it</a>.</p>`;
  $('#sf').onsubmit=e=>{e.preventDefault();search(0)};
  $('#chips').onclick=e=>{if(e.target.dataset.c){$('#cat').value=e.target.dataset.c;search(0)}};
  const c0=new URLSearchParams(location.search).get('c');if(c0)$('#cat').value=c0;search(0)}
@@ -89,7 +90,7 @@ const hue=s=>[...String(s)].reduce((a,c)=>a+c.charCodeAt(0),0)%360;
 const cover=b=>{const u=b.cover_url||(b.isbn?`https://covers.openlibrary.org/b/isbn/${encodeURIComponent(b.isbn)}-M.jpg?default=false`:'');
  return`<div class=cv style="background:hsl(${hue(b.category||b.title)} 40% 86%)">${esc((b.title||'?').charAt(0).toUpperCase())}${u?`<img src="${esc(u)}" alt="" loading=lazy onerror="this.remove()">`:''}</div>`};
 const card=b=>`<div class=bk>${cover(b)}<div class=in><b><a href="/book/${encodeURIComponent(b.book_number)}" data-l style="color:inherit">${esc(b.title)}</a></b>${esc(b.author)}<br><a href="/book/${encodeURIComponent(b.book_number)}" data-l>View summary</a><br><span class=mute>${esc(b.book_number)}</span><br>${boxLink(b)} · Shelf ${esc(b.shelf_location)||'—'}<br>${badge(b.status)}</div></div>`;
-function bookTable(d){return d.length?`<div class=grid>${d.map(card).join('')}</div>`:'<div class=card>No books match. Try fewer words or another category.</div>'}
+function bookTable(d){return d.length?`<div class=grid>${d.map(card).join('')}</div>`:'<div class=card>No books match. Try fewer words, or <a href="/request?t=${encodeURIComponent(($('#q')||{}).value||'')}" data-l>request this book</a>.</div>'}
 async function bookPage(n){
  const{data:b}=await sb.from('book_locations').select('*').eq('book_number',n).maybeSingle();
  if(!b)return app.innerHTML=`<div class=card><h2>Book not found</h2><a href="/" data-l>Search books</a></div>`;
@@ -99,6 +100,24 @@ async function bookPage(n){
  <table>${rows.map(([k,v])=>`<tr><th>${k}<td>${esc(v)}</tr>`).join('')}<tr><th>Location<td>${boxLink(b)}${b.shelf_location?' · Shelf '+esc(b.shelf_location):''}</tr></table></div></div>
  <div class=card><h3>Summary</h3><p style="white-space:pre-wrap">${esc(b.description)||'<span class=mute>No summary has been added for this book yet.</span>'}</p></div>
  <a href="javascript:history.back()">← Back</a>`}
+function reqPage(){
+ const t=new URLSearchParams(location.search).get('t')||'';
+ app.innerHTML=`<div class=card style="max-width:520px;margin:auto"><h1 style="margin-top:0">Request a book</h1><p class=mute>Tell us which book you are looking for. The librarian will review your request.</p>
+ <form id=rf><label>Book title *<input id=rt required maxlength=200 value="${esc(t)}"></label><label>Author<input id=ra maxlength=200></label>
+ <label>Your name<input id=rn maxlength=100></label><label>Phone or email, so we can tell you when it arrives<input id=rc maxlength=150></label>
+ <label>Note<textarea id=ro rows=3 maxlength=500></textarea></label>
+ <input id=hp tabindex=-1 autocomplete=off aria-hidden=true style="position:absolute;left:-9999px"><p id=rm class=err></p><button>Send request</button></form></div>`;
+ $('#rf').onsubmit=async e=>{e.preventDefault();if($('#hp').value)return;
+  const v=id=>$(id).value.trim()||null,title=$('#rt').value.trim();
+  const{error}=await sb.from('book_requests').insert({title,author:v('#ra'),requester_name:v('#rn'),contact:v('#rc'),note:v('#ro')});
+  if(error)return $('#rm').textContent='The request could not be sent. Please try again.';
+  app.innerHTML=`<div class=card><h2>Request sent</h2><p>Thank you. We received your request for “${esc(title)}”.</p><a href="/" data-l>Back to search</a></div>`}}
+async function reqAdmin(){
+ const{data}=await sb.from('book_requests').select('*').order('created_at',{ascending:false}).limit(200);
+ const S=['new','in_progress','done','rejected'];
+ $('#pane').innerHTML=`<div class="card scroll"><table><tr><th>Date<th>Book<th>Requester<th>Status<th></tr>${data.map(r=>`<tr><td>${new Date(r.created_at).toLocaleDateString()}<td><b>${esc(r.title)}</b><br>${esc(r.author)}<br><span class=mute>${esc(r.note)}</span><td>${esc(r.requester_name)}<br>${esc(r.contact)}<td><select data-s=${r.id}>${S.map(x=>`<option ${x==r.status?'selected':''}>${x}</option>`).join('')}</select><td><button class="sm del" data-d=${r.id}>Delete</button></tr>`).join('')||'<tr><td colspan=5 class=mute>No requests yet.</tr>'}</table></div>`;
+ $('#pane').onchange=async e=>{if(e.target.dataset.s){await sb.from('book_requests').update({status:e.target.value}).eq('id',e.target.dataset.s);log('Request set to '+e.target.value)}};
+ $('#pane').onclick=async e=>{const id=e.target.dataset.d;if(id&&confirm('Delete this request?')){await sb.from('book_requests').delete().eq('id',id);reqAdmin()}}}
 async function catPage(){
  const{data}=await sb.from('book_locations').select('*').order('title').limit(2000);
  const g={};data.forEach(b=>(g[b.category||'Uncategorised']??=[]).push(b));
@@ -118,10 +137,10 @@ async function adminPage(){
  $('#lf').onsubmit=async e=>{e.preventDefault();const{data,error}=await sb.auth.signInWithPassword({email:$('#em').value,password:$('#pw').value});
   if(error)return $('#le').textContent=error.message;await setSession(data.session);adminPage()};
  if(!isAdmin)return app.innerHTML=`<div class=card><h2>Not an administrator</h2><p>This account is not listed in admin_users. See README step 4.</p><button id=lo>Log out</button></div>`,$('#lo').onclick=logout;
- const T=[['dash','Dashboard'],['books','Books'],['boxes','Boxes'],['qr','QR codes'],['io','Import / Export']];
+ const T=[['dash','Dashboard'],['books','Books'],['boxes','Boxes'],['qr','QR codes'],['io','Import / Export'],['req','Requests']];
  app.innerHTML=`<div class=tabs>${T.map(([k,v])=>`<button data-t=${k} class="${k==tab?'on':''}">${v}</button>`).join('')}<button class=del id=lo>Log out</button></div><div id=pane></div>`;
  $('#lo').onclick=logout;document.querySelector('.tabs').onclick=e=>{if(e.target.dataset.t){tab=e.target.dataset.t;adminPage()}};
- ({dash,books:bookAdmin,boxes:boxAdmin,qr,io})[tab]()}
+ ({dash,books:bookAdmin,boxes:boxAdmin,qr,io,req:reqAdmin})[tab]()}
 async function logout(){await sb.auth.signOut();await setSession(null);go('/')}
 async function dash(){
  const[bk,bx,l]=await Promise.all([sb.from('books').select('category,status').limit(100000),sb.from('boxes').select('box_number,box_books(count)'),sb.from('activity_log').select('*').order('created_at',{ascending:false}).limit(8)]);
