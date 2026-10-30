@@ -23,6 +23,18 @@ table{width:100%;border-collapse:collapse;font-size:.92rem}th,td{text-align:left
 .scroll{overflow-x:auto}.mute{color:var(--mute)}.err{color:var(--bad)}
 dialog{border:1px solid var(--line);border-radius:10px;width:min(560px,95vw);max-height:90vh}dialog label{display:block;margin:.5rem 0 .1rem;font:600 .85rem system-ui}
 .qrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.7rem}.qrs img{width:100%}
+header{background:linear-gradient(120deg,#1f5f4a,#33856a)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.8rem}
+.bk{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.bk .in{padding:.55rem .65rem;font:.85rem/1.4 system-ui}.bk b{display:block;font:600 .95rem/1.25 Georgia,serif;margin-bottom:.2rem}
+.cv{position:relative;aspect-ratio:2/3;display:grid;place-items:center;font:700 3rem Georgia,serif;color:rgba(0,0,0,.25)}
+.cv img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.sec{display:flex;justify-content:space-between;align-items:baseline;margin:1.6rem 0 .6rem;border-bottom:2px solid var(--acc)}.sec h2{margin:0;font-size:1.25rem}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;margin:.8rem 0}
+.kpi{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:10px;padding:.8rem 1rem}
+.kpi b{display:block;font:700 2rem system-ui}.kpi span{color:var(--mute);font:.9rem system-ui}
+.bar{display:grid;grid-template-columns:120px 1fr 32px;gap:.5rem;align-items:center;margin:.35rem 0;font:.9rem system-ui}.bar i{display:block;height:12px;border-radius:6px;background:var(--acc)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem}
 </style></head><body>
 <header><a href="/" data-l>📚 Library Finder</a><nav id="nav"></nav></header>
 <main id="app">Loading…</main>
@@ -43,9 +55,9 @@ const boxLink=b=>b.box_number?`<a href="/box/${encodeURIComponent(b.box_number)}
 
 async function setSession(s){session=s;isAdmin=false;
  if(s){const{data}=await sb.from('admin_users').select('id').eq('auth_user_id',s.user.id).maybeSingle();isAdmin=!!data}
- $('#nav').innerHTML=`<a href="/" data-l>Search</a><a href="/admin" data-l>${session?'Admin':'Admin login'}</a>`}
+ $('#nav').innerHTML=`<a href="/" data-l>Search</a><a href="/categories" data-l>Categories</a><a href="/admin" data-l>${session?'Admin':'Admin login'}</a>`}
 function route(){const p=location.pathname,m=p.match(/^\/box\/(.+)$/);
- if(m)return boxPage(decodeURIComponent(m[1]));if(p.startsWith('/admin'))return adminPage();home()}
+ if(m)return boxPage(decodeURIComponent(m[1]));if(p=='/categories')return catPage();if(p.startsWith('/admin'))return adminPage();home()}
 
 /* ---------- PUBLIC ---------- */
 async function home(){
@@ -62,7 +74,7 @@ async function home(){
  <p class=mute>Scan the QR code on a storage box with your phone camera to see every book inside it.</p>`;
  $('#sf').onsubmit=e=>{e.preventDefault();search(0)};
  $('#chips').onclick=e=>{if(e.target.dataset.c){$('#cat').value=e.target.dataset.c;search(0)}};
- search(0)}
+ const c0=new URLSearchParams(location.search).get('c');if(c0)$('#cat').value=c0;search(0)}
 async function search(pg){
  let q=sb.from('book_locations').select('*',{count:'exact'});
  const t=$('#q').value.trim().replace(/[,()%*]/g,' ');
@@ -73,8 +85,15 @@ async function search(pg){
  $('#res').innerHTML=bookTable(data)+`<div class=row><span class=mute>${count} result(s) · page ${pg+1}</span>
  <button class="alt sm" ${pg?'':'disabled'} id=pv>Previous</button><button class="alt sm" ${(pg+1)*PS<count?'':'disabled'} id=nx>Next</button></div>`;
  $('#pv').onclick=()=>search(pg-1);$('#nx').onclick=()=>search(pg+1)}
-function bookTable(d){if(!d.length)return'<div class=card>No books match. Try fewer words or another category.</div>';
- return`<div class="card scroll"><table><tr><th>Book ID<th>Title<th>Author<th>Category<th>Box<th>Shelf<th>Status</tr>${d.map(b=>`<tr><td>${esc(b.book_number)}<td><b>${esc(b.title)}</b><td>${esc(b.author)}<td>${esc(b.category)}<td>${boxLink(b)}<td>${esc(b.shelf_location)}<td>${badge(b.status)}</tr>`).join('')}</table></div>`}
+const hue=s=>[...String(s)].reduce((a,c)=>a+c.charCodeAt(0),0)%360;
+const cover=b=>{const u=b.cover_url||(b.isbn?`https://covers.openlibrary.org/b/isbn/${encodeURIComponent(b.isbn)}-M.jpg?default=false`:'');
+ return`<div class=cv style="background:hsl(${hue(b.category||b.title)} 40% 86%)">${esc((b.title||'?').charAt(0).toUpperCase())}${u?`<img src="${esc(u)}" alt="" loading=lazy onerror="this.remove()">`:''}</div>`};
+const card=b=>`<div class=bk>${cover(b)}<div class=in><b>${esc(b.title)}</b>${esc(b.author)}<br><span class=mute>${esc(b.book_number)}</span><br>${boxLink(b)} · Shelf ${esc(b.shelf_location)||'—'}<br>${badge(b.status)}</div></div>`;
+function bookTable(d){return d.length?`<div class=grid>${d.map(card).join('')}</div>`:'<div class=card>No books match. Try fewer words or another category.</div>'}
+async function catPage(){
+ const{data}=await sb.from('book_locations').select('*').order('title').limit(2000);
+ const g={};data.forEach(b=>(g[b.category||'Uncategorised']??=[]).push(b));
+ app.innerHTML=`<h1 style="margin:.3rem 0">Browse by category</h1>`+(Object.keys(g).sort().map(k=>`<div class=sec><h2>${esc(k)} <span class=mute>(${g[k].length})</span></h2><a href="/?c=${encodeURIComponent(k)}" data-l>View all</a></div><div class=grid>${g[k].slice(0,6).map(card).join('')}</div>`).join('')||'<div class=card>No books yet.</div>')}
 async function boxPage(n){
  const{data:bx}=await sb.from('boxes').select('*').eq('box_number',n).maybeSingle();
  if(!bx)return app.innerHTML=`<div class=card><h2>Box not found</h2><p>No box is registered as “${esc(n)}”.</p><a href="/" data-l>Search books instead</a></div>`;
@@ -96,9 +115,15 @@ async function adminPage(){
  ({dash,books:bookAdmin,boxes:boxAdmin,qr,io})[tab]()}
 async function logout(){await sb.auth.signOut();await setSession(null);go('/')}
 async function dash(){
- const c=t=>sb.from(t).select('id',{count:'exact',head:true});
- const[b,x,k,l]=await Promise.all([c('books'),c('boxes'),sb.from('books').select('category'),sb.from('activity_log').select('*').order('created_at',{ascending:false}).limit(15)]);
- $('#pane').innerHTML=`<div class=card><div class=stats><span><b>${b.count}</b> books</span><span><b>${x.count}</b> boxes</span><span><b>${new Set(k.data.map(r=>r.category).filter(Boolean)).size}</b> categories</span></div></div>
+ const[bk,bx,l]=await Promise.all([sb.from('books').select('category,status').limit(100000),sb.from('boxes').select('box_number,box_books(count)'),sb.from('activity_log').select('*').order('created_at',{ascending:false}).limit(8)]);
+ const cnt=(a,f)=>a.reduce((m,r)=>(m[f(r)]=(m[f(r)]||0)+1,m),{});
+ const cat=Object.entries(cnt(bk.data,r=>r.category||'Uncategorised')).sort((a,b)=>b[1]-a[1]),st=cnt(bk.data,r=>r.status);
+ const tops=bx.data.map(b=>[b.box_number,b.box_books[0].count]).sort((a,b)=>b[1]-a[1]).slice(0,5);
+ const kp=(n,t,c)=>`<div class=kpi style="border-left-color:${c}"><b>${n}</b><span>${t}</span></div>`;
+ $('#pane').innerHTML=`<div class=kpis>${kp(bk.data.length,'Books','#1f5f4a')}${kp(bx.data.length,'Boxes','#c58a1b')}${kp(cat.filter(c=>c[0]!='Uncategorised').length,'Categories','#3b6ea5')}${kp(bk.data.length-(st.available||0),'Not on the shelf','#a4262c')}</div>
+ <div class=two><div class=card><h3>Books per category</h3>${cat.map(([k,v])=>`<div class=bar><span>${esc(k)}</span><i style="width:${v/cat[0][1]*100}%"></i><b>${v}</b></div>`).join('')||'<span class=mute>No books yet.</span>'}</div>
+ <div class=card><h3>Fullest boxes</h3>${tops.map(([k,v])=>`<div class=bar><span>${esc(k)}</span><i style="width:${v/(tops[0][1]||1)*100}%;background:#c58a1b"></i><b>${v}</b></div>`).join('')||'<span class=mute>No boxes yet.</span>'}
+ <h3>Status</h3>${Object.entries(st).map(([k,v])=>`${badge(k)} ${v}&nbsp;&nbsp;`).join('')}</div></div>
  <div class=card><h3>Recent activity</h3>${l.data.map(r=>`<div>${new Date(r.created_at).toLocaleString()} — ${esc(r.action)}</div>`).join('')||'<span class=mute>Nothing yet.</span>'}</div>`}
 
 function form(title,fields,v,onSave){
@@ -108,7 +133,7 @@ function form(title,fields,v,onSave){
  document.body.append(d);d.showModal();d.querySelector('#cx').onclick=()=>d.remove();
  d.querySelector('form').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));
   const err=await onSave(o);if(err)return d.querySelector('#fe').textContent=err;d.remove();adminPage()}}
-const bookFields=bx=>[{k:'book_number',l:'Book ID',r:1},{k:'title',l:'Title',r:1},{k:'author',l:'Author'},{k:'isbn',l:'ISBN'},{k:'publisher',l:'Publisher'},{k:'publication_year',l:'Year',t:'number'},{k:'category',l:'Category'},{k:'classification',l:'Classification'},{k:'cutter_number',l:'Cutter number'},{k:'copy_number',l:'Copy number'},{k:'status',l:'Status',o:['available','borrowed','missing','repair']},{k:'box_number',l:'Box',o:['',...bx]},{k:'description',l:'Description',t:'ta'}];
+const bookFields=bx=>[{k:'book_number',l:'Book ID',r:1},{k:'title',l:'Title',r:1},{k:'author',l:'Author'},{k:'isbn',l:'ISBN'},{k:'publisher',l:'Publisher'},{k:'publication_year',l:'Year',t:'number'},{k:'category',l:'Category'},{k:'classification',l:'Classification'},{k:'cutter_number',l:'Cutter number'},{k:'copy_number',l:'Copy number'},{k:'status',l:'Status',o:['available','borrowed','missing','repair']},{k:'box_number',l:'Box',o:['',...bx]},{k:'cover_url',l:'Cover image link (optional)'},{k:'description',l:'Description',t:'ta'}];
 async function setBox(id,num){
  if(!num){const{error}=await sb.from('box_books').delete().eq('book_id',id);return error?.message}
  const{data:bx}=await sb.from('boxes').select('id').eq('box_number',num).maybeSingle();if(!bx)return'Box not found';
@@ -124,7 +149,7 @@ async function bookAdmin(){
  <div class=row><span class=mute>${count} books</span><button class="sm alt" id=bp ${bpage?'':'disabled'}>Previous</button><button class="sm alt" id=bn ${(bpage+1)*25<count?'':'disabled'}>Next</button></div></div>`;
  $('#bgo').onclick=()=>{bq=$('#bs').value;bpage=0;bookAdmin()};$('#bp').onclick=()=>{bpage--;bookAdmin()};$('#bn').onclick=()=>{bpage++;bookAdmin()};
  const save=id=>async o=>{const box=o.box_number;delete o.box_number;o.publication_year=o.publication_year?+o.publication_year:null;
-  for(const k of['isbn','publisher'])o[k]=o[k]||null;
+  for(const k of['isbn','publisher','cover_url'])o[k]=o[k]||null;
   const r=id?await sb.from('books').update(o).eq('id',id).select('id').single():await sb.from('books').insert(o).select('id').single();
   if(r.error)return r.error.code=='23505'?'That Book ID already exists.':r.error.message;
   const e=await setBox(r.data.id,box);log((id?'Updated ':'Added ')+o.book_number+(box?' → '+box:''));return e};
@@ -168,7 +193,7 @@ function parseCSV(t){const rows=[];let r=[],f='',q=false;t=t.replace(/^\uFEFF/,'
  r.push(f);if(r.some(x=>x.trim()))rows.push(r);return rows}
 const toCSV=(rows,cols)=>'\uFEFF'+[cols,...rows.map(r=>cols.map(c=>r[c]))].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
 const dl=(n,t)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download=n;a.click()};
-const BC=['book_number','title','author','isbn','publisher','publication_year','category','classification','cutter_number','copy_number','status','description'];
+const BC=['book_number','title','author','isbn','publisher','publication_year','category','classification','cutter_number','copy_number','status','description','cover_url'];
 const ALIAS={year:'publication_year',cutter:'cutter_number',copy:'copy_number',book_id:'book_number'};
 function io(){
  $('#pane').innerHTML=`<div class=card><h3>Export</h3><div class=row><button id=eb>Books CSV</button><button id=ex>Boxes CSV</button></div><p class=mute>CSV files open directly in Excel.</p></div>
